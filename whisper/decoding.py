@@ -305,6 +305,9 @@ class BeamSearchDecoder(TokenDecoder):
                 idx = i * self.beam_size + j
                 prefix = tokens[idx].tolist()
                 for logprob, token in zip(*logprobs[idx].topk(self.beam_size + 1)):
+                    # Increase the log prob of token 275, 4105 or 37365 by 1.0
+                    if token.item() in [275, 4105, 37365]:
+                        logprob += 10.0
                     new_logprob = (sum_logprobs[idx] + logprob).item()
                     sequence = tuple(prefix + [token.item()])
                     scores[sequence] = new_logprob
