@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 from torch.distributions import Categorical
+import kenlm
 
 from .audio import CHUNK_LENGTH
 from .tokenizer import Tokenizer, get_tokenizer
@@ -274,13 +275,15 @@ class GreedyDecoder(TokenDecoder):
 
 
 class BeamSearchDecoder(TokenDecoder):
-    def __init__(self, beam_size: int, eot: int, inference: Inference, patience: Optional[float] = None):
+    def __init__(self, beam_size: int, eot: int, inference: Inference, patience: Optional[float] = None, tokenizer = None):
         self.beam_size = beam_size
         self.eot = eot
         self.inference = inference
         self.patience = patience or 1.0
         self.max_candidates: int = round(beam_size * self.patience)
         self.finished_sequences = None
+        self.tokenizer = tokenizer
+        self.kenlm_model = kenlm.LanguageModel("/Users/matthieulecauchois/Downloads/3-gram.pruned.3e-7.arpa")
 
         assert self.max_candidates > 0, f"Invalid beam size ({beam_size}) or patience ({patience})"
 
@@ -308,6 +311,13 @@ class BeamSearchDecoder(TokenDecoder):
                     # Increase the log prob of token 275, 4105 or 37365 by 1.0
                     if token.item() in [275, 4105, 37365]:
                         logprob += 10.0
+                    state = kenlm.State()
+                    state2 = kenlm.State()
+                    self.kenlm_model.BeginSentenceWrite(state)
+                    accum = 0.0
+                    word = self.tokenizer.decode(token.item()).strip()
+                    # TODO: store state for each beam
+                    accum += self.kenlm_model.BaseScore(state, word, state2)
                     new_logprob = (sum_logprobs[idx] + logprob).item()
                     sequence = tuple(prefix + [token.item()])
                     scores[sequence] = new_logprob
@@ -484,7 +494,7 @@ class DecodingTask:
         # decoder: implements how to select the next tokens, given the autoregressive distribution
         if options.beam_size is not None:
             self.decoder = BeamSearchDecoder(
-                options.beam_size, tokenizer.eot, self.inference, options.patience
+                options.beam_size, tokenizer.eot, self.inference, options.patience, self.tokenizer
             )
         else:
             self.decoder = GreedyDecoder(options.temperature, tokenizer.eot)
