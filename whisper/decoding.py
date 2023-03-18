@@ -283,7 +283,7 @@ class BeamSearchDecoder(TokenDecoder):
         self.max_candidates: int = round(beam_size * self.patience)
         self.finished_sequences = None
         self.tokenizer = tokenizer
-        self.kenlm_model = kenlm.LanguageModel("/Users/matthieulecauchois/Downloads/3-gram.pruned.3e-7.arpa")
+        self.kenlm_model = kenlm.LanguageModel("/Users/matthieulecauchois/Documents/Typeless/Dev/typeless-health/back/scripts/cas_merged.arpa")
 
         assert self.max_candidates > 0, f"Invalid beam size ({beam_size}) or patience ({patience})"
 
@@ -308,21 +308,18 @@ class BeamSearchDecoder(TokenDecoder):
                 idx = i * self.beam_size + j
                 prefix = tokens[idx].tolist()
                 for logprob, token in zip(*logprobs[idx].topk(self.beam_size + 1)):
-                    # Increase the log prob of token 275, 4105 or 37365 by 1.0
-                    if token.item() in [275, 4105, 37365]:
-                        logprob += 10.0
-                    state = kenlm.State()
-                    state2 = kenlm.State()
-                    self.kenlm_model.BeginSentenceWrite(state)
-                    accum = 0.0
-                    word = self.tokenizer.decode(token.item()).strip()
-                    # TODO: store state for each beam
-                    accum += self.kenlm_model.BaseScore(state, word, state2)
+
+                    # Add KenLM logprob
+                    # TODO: store state for each beam instead of recomputing each time
+                    sentence = "".join([self.tokenizer.decode(prefix_token) for prefix_token in prefix])
+                    kenlm_logprob = list(self.kenlm_model.full_scores(sentence))[-1][0]
+                    logprob += kenlm_logprob
                     new_logprob = (sum_logprobs[idx] + logprob).item()
                     sequence = tuple(prefix + [token.item()])
                     scores[sequence] = new_logprob
                     sources[sequence] = idx
 
+                    print(sentence)
             # STEP 2: rank the candidates and keep the top beam_size sequences for each audio
             saved = 0
             for sequence in sorted(scores, key=scores.get, reverse=True):
